@@ -1,0 +1,6 @@
+github.com/davecgh/go-spew v1.1.1 h1:vj9j/u1bqnvCEfJOwUhtlOARqs3+rkHYY13jYWTU97c=
+github.com/davecgh/go-spew v1.1.1/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
+github.com/tensorflow/tensorflow v2.1.0+incompatible h1:piL4AzfPuv67+gbsKo2IhIecCe4ILpN0294O8ZrxneI=
+github.com/tensorflow/tensorflow v2.1.0+incompatible/go.mod h1:itOSERT4trABok4UOoG+X4BoKds9F3rIsySdn+Lvu90=
+gocv.io/x/gocv v0.22.0 h1:pv+tcjcoW/xsaM/nfrzMK5PEEHYe2ND/LQRoyBpgjsg=
+gocv.io/x/gocv v0.22.0/go.mod h1:7Ju5KbPo+R85evmlhhKPVMwXtgDRNX/PtfVfbToSrLU=
