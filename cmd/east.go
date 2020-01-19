@@ -1,15 +1,18 @@
 package main
 
 import (
+	"bytes"
 	"flag"
 	"fmt"
 	"github.com/davecgh/go-spew/spew"
 	tf "github.com/tensorflow/tensorflow/tensorflow/go"
 	"github.com/tensorflow/tensorflow/tensorflow/go/op"
-	"gocv.io/x/gocv"
 	"image"
 	"io/ioutil"
-	"math"
+	"os"
+
+	"github.com/nfnt/resize"
+	"image/png"
 )
 
 var (
@@ -74,64 +77,75 @@ func (I *ImageResizer) Run(tensor *tf.Tensor) (*tf.Tensor, error) {
 	return normalized[0], nil
 }
 
-func resize_image(uri string) (gocv.Mat, float64, float64) {
-	max_side_len := 2400
-	im := gocv.IMRead(uri, gocv.IMReadColor)
+func resizeImage(img image.Image) (resized image.Image, ratioH float64, ratioW float64) {
+	h := img.Bounds().Dy()
+	w := img.Bounds().Dx()
 
-	dims := im.Size()
+	// Limit the max size of the image
+	maxSize := 2400
 
-	h := dims[0]
-	w := dims[1]
+	// Resize ratio
+	ratio := 1.0
 
-	resize_h := h
-	resize_w := w
-	ratio := 0.0
-
-	if math.Max(float64(resize_h), float64(resize_w)) > float64(max_side_len) {
-		if resize_h > resize_w {
-			ratio = float64(max_side_len) / float64(resize_h)
-		} else {
-			ratio = float64(max_side_len) / float64(resize_w)
-		}
-	} else {
-		ratio = 1.
+	biggestDim := w
+	if h > w {
+		biggestDim = h
 	}
 
-	resize_h = int(float64(resize_h) * ratio)
-	resize_w = int(float64(resize_w) * ratio)
-
-	if resize_h%32 == 0 {
-		resize_h = resize_h
-	} else {
-		resize_h = (resize_h / 32) * 32
+	if biggestDim > maxSize {
+		ratio = float64(maxSize / biggestDim)
 	}
 
-	if resize_w%32 == 0 {
-		resize_w = resize_w
-	} else {
-		resize_w = (resize_w / 32) * 32
+	resizeH := uint(float64(h) * ratio)
+	resizeW := uint(float64(w) * ratio)
+
+	if resizeH%32 != 0 {
+		resizeH = (resizeH / 32.0) * 32
 	}
 
-	size := image.Point{X: resize_w, Y: resize_h}
+	if resizeW%32 != 0 {
+		resizeW = (resizeW / 32) * 32
+	}
 
-	gocv.Resize(im, &im, size, 0, 0, gocv.InterpolationLinear)
+	resized = resize.Resize(resizeW, resizeH, img, resize.Bilinear)
 
-	ratio_h := float64(resize_h) / float64(h)
-	ratio_w := float64(resize_w) / float64(w)
+	ratioH = float64(resizeH) / float64(h)
+	ratioW = float64(resizeW) / float64(w)
+	return resized, ratioH, ratioW
+}
 
-	return im, ratio_h, ratio_w
+func prepareImage(path string, resizer *ImageResizer) (*tf.Tensor, error) {
+	reader, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+
+	img, err := png.Decode(reader)
+	if err != nil {
+		return nil, err
+	}
+
+	img, _, _ = resizeImage(img)
+
+	// TODO
+	// img_resized.DivideFloat(127.5)
+	// img_resized.SubtractFloat(1)
+
+	var buf bytes.Buffer
+	err = png.Encode(&buf, img)
+	if err != nil {
+		return nil, err
+	}
+
+	tensor, err := tf.NewTensor(string(buf.Bytes()))
+	if err != nil {
+		return nil, err
+	}
+
+	return resizer.Run(tensor)
 }
 
 func main() {
-	img_resized, ratio_h, ratio_w := resize_image("test.png")
-	_ = ratio_w
-	_ = ratio_h
-
-	img_resized.DivideFloat(127.5)
-	img_resized.SubtractFloat(1)
-
-	bytes, err := gocv.IMEncode(gocv.PNGFileExt, img_resized)
-
 	model, err := ioutil.ReadFile(*modelPath)
 	if err != nil {
 		fmt.Println(err)
@@ -158,13 +172,7 @@ func main() {
 		return
 	}
 
-	image, err := tf.NewTensor(string(bytes))
-	if err != nil {
-		fmt.Println(err)
-		return
-	}
-
-	tensor, err := imageResizer.Run(image)
+	tensor, err := prepareImage(*imagePath, imageResizer)
 	if err != nil {
 		fmt.Println(err)
 		return
