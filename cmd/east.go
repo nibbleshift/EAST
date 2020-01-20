@@ -10,9 +10,9 @@ import (
 	"image"
 	"io/ioutil"
 	"os"
-
 	"github.com/nfnt/resize"
 	"image/png"
+	"image/color"
 )
 
 var (
@@ -42,12 +42,10 @@ func NewImageResizer(width, height, channels int) (*ImageResizer, error) {
 	)
 	s := op.NewScope()
 	input = op.Placeholder(s, tf.String)
-	output = op.ResizeBilinear(s,
-		op.ExpandDims(s,
-			op.Cast(s,
-				op.DecodePng(s, input, op.DecodePngChannels(int64(channels))), tf.Float),
-			op.Const(s.SubScope("make_batch"), int32(0))),
-		op.Const(s.SubScope("size"), []int32{int32(height), int32(width)}))
+	output = op.ExpandDims(s,
+		op.Cast(s,
+			op.DecodePng(s, input, op.DecodePngChannels(int64(channels))), tf.Float),
+		op.Const(s.SubScope("make_batch"), int32(0)))
 	graph, err := s.Finalize()
 	if err != nil {
 		return nil, err
@@ -88,6 +86,7 @@ func resizeImage(img image.Image) (resized image.Image, ratioH float64, ratioW f
 	ratio := 1.0
 
 	biggestDim := w
+
 	if h > w {
 		biggestDim = h
 	}
@@ -111,6 +110,7 @@ func resizeImage(img image.Image) (resized image.Image, ratioH float64, ratioW f
 
 	ratioH = float64(resizeH) / float64(h)
 	ratioW = float64(resizeW) / float64(w)
+
 	return resized, ratioH, ratioW
 }
 
@@ -126,23 +126,40 @@ func prepareImage(path string, resizer *ImageResizer) (*tf.Tensor, error) {
 	}
 
 	img, _, _ = resizeImage(img)
+	height := img.Bounds().Dy()
+	width := img.Bounds().Dx()
+	
+	var rbuf bytes.Buffer
+	err = png.Encode(&rbuf, img)
+	if err != nil {
+		return nil, err
+	}
 
-	// TODO
-	// img_resized.DivideFloat(127.5)
-	// img_resized.SubtractFloat(1)
+	ioutil.WriteFile("resized.png", rbuf.Bytes(), 0755)
+
+	normalized := image.NewRGBA(image.Rectangle{ image.Point{X: 0, Y: 0}, image.Point{X: width, Y: height} })
+
+	for y := 0; y < height; y++ {
+		for x := 0; x < width; x++ {
+			r, g, b, a := img.At(x, y).RGBA()
+			r_n := uint8((float32(r) / 127.5)) - 1
+			g_n := uint8((float32(g) / 127.5)) - 1
+			b_n := uint8((float32(b) / 127.5)) - 1
+			a_n := uint8((float32(a) / 127.5)) - 1
+			normalized.Set(x, y, color.RGBA{ r_n, g_n, b_n, a_n})
+			//fmt.Printf("[ %v, %v, %v, %v ]\n", r_n, g_n, b_n, a_n)
+		}
+	}
 
 	var buf bytes.Buffer
-	err = png.Encode(&buf, img)
+	err = png.Encode(&buf, normalized)
 	if err != nil {
 		return nil, err
 	}
 
 	tensor, err := tf.NewTensor(string(buf.Bytes()))
-	if err != nil {
-		return nil, err
-	}
 
-	return resizer.Run(tensor)
+	return  resizer.Run(tensor)
 }
 
 func main() {
@@ -166,6 +183,7 @@ func main() {
 
 	defer session.Close()
 
+
 	imageResizer, err := NewImageResizer(512, 512, 3)
 	if err != nil {
 		fmt.Println(err)
@@ -183,8 +201,8 @@ func main() {
 	score_out := graph.Operation("pred_score_map/Sigmoid").Output(0)
 	geo_out := graph.Operation("pred_geo_map/concat").Output(0)
 
-	spew.Dump(score_out)
-	spew.Dump(geo_out)
+	_ = score_out
+	_ = geo_out
 
 	result, err := session.Run(
 		map[tf.Output]*tf.Tensor{
@@ -198,4 +216,5 @@ func main() {
 	)
 
 	spew.Dump(result)
+	spew.Dump(err.Error())
 }
